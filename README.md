@@ -2,7 +2,8 @@
 
 Pronounced: Lin Aches
 
-I a retro vibe computing environment.
+A retro vibe computing environment.
+
 Although the look and feel is usually what people mean when this goal is mentioned, in this case, the intent is much deeper.  Anyone who has owned an early micro-computer knows the experience of booting your machine into a practically empty environment, but with potential to run / write code that will do amazing things.  There was also a real sense of control of what is running on the machine.  In contrast to this, if you log in into the console of a very minimal Linux distro and list the running processes, you will get a list of dozens if not hundreds of processes doing stuff you don't really know.
 
 The guiding design rules therefore, are thus:
