@@ -14,7 +14,9 @@ static int screen_height = 0;
 static int screen_bpp = 0;
 static int screen_size = 0;
 static int screen_pitch = 0;
-static Color* screen_buffer = 0;
+static int screen_rows = 0;
+static int screen_cols = 0;
+static Color *screen_buffer = 0;
 static const byte font_data[] = {
 #include "font.inl"
 };
@@ -43,6 +45,8 @@ bool screen_init()
 	//printf("Screen info retrieved successfully\n"); fflush(stdout);
 	screen_width = vinfo.xres;
 	screen_height = vinfo.yres;
+	screen_rows = screen_height / 16;
+	screen_cols = screen_width / 8;
 	screen_bpp = vinfo.bits_per_pixel;
 	screen_size = screen_width * screen_height * (screen_bpp / 8);
 	screen_pitch = screen_width * (screen_bpp / 8);
@@ -276,7 +280,7 @@ void screen_scroll(uint dy, Color blank_color)
 
 bool screen_draw_char(uint x, uint y, char c, Color fg, Color bg)
 {
-	if (x>=(screen_width - 8) || y>=(screen_height - 16))
+	if (x>(screen_width - 8) || y>(screen_height - 16))
 		return 0;
 	byte b = (byte)c;
 	uint index = b;
@@ -306,4 +310,34 @@ bool screen_draw_string(uint x, uint y, const char *str, Color fg, Color bg)
 		str++;
 	}
 	return 1;
+}
+
+bool text_draw_char(uint x, uint y, char c, Color fg, Color bg)
+{
+	return screen_draw_char(x * 8, y * 16, c, fg, bg);
+}
+
+bool text_draw_string(uint x, uint y, const char *str, Color fg, Color bg)
+{
+	return screen_draw_string(x * 8, y * 16, str, fg, bg);
+}
+
+uint screen_get_rows()
+{
+	return screen_rows;
+}
+
+uint screen_get_cols()
+{
+	return screen_cols;
+}
+
+uint screen_get_width()
+{
+	return screen_width;
+}
+
+uint screen_get_height()
+{
+	return screen_height;
 }
