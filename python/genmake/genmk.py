@@ -26,14 +26,16 @@ def generate_rules(directory, c_files):
     target = ''
     if is_executable(directory, c_files):
         deps=[]
+        lib_paths=""
         try:
             deps=open(f'{directory}/libs.cfg').readline()
             deps=deps.split()
+            lib_paths = " ".join([f'lib/lib{d}.a' for d in deps])
             deps=['-l'+d for d in deps]
         except OSError:
             pass
         target = f'bin/{name}'
-        lines.append(f'bin/{name}: {objects}')
+        lines.append(f'bin/{name}: {objects} {lib_paths}')
         deps_str=' '.join(deps)
         lines.append(f'\tbin/mold -o bin/{name} {objects} -Llib -Llib/musl -lc lib/musl/crt1.o {deps_str}')
     else:
