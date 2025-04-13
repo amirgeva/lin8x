@@ -77,6 +77,13 @@ static const byte ascii_mapping[] = {
 	KEY_SPACE, ' ', ' '
 };
 
+static char *strcasestr(const char *h, const char *n)
+{
+	size_t l = strlen(n);
+	for (; *h; h++) if (!strncasecmp(h, n, l)) return (char *)h;
+	return 0;
+}
+
 int find_keyboard()
 {
 	char device_name[DEVICE_NAME_LEN];
@@ -99,8 +106,9 @@ int find_keyboard()
 			close(fd);
 			continue;
 		}
+		//printf("Device: %s - %s\n", device_path, device_name);
 
-		if (strstr(device_name, "Keyboard") != NULL)
+		if (strcasestr(device_name, "Keyboard") != NULL)
 		{
 			rc = 0;
 		}
