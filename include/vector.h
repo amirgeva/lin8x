@@ -4,8 +4,10 @@
 
 typedef struct vector_ Vector;
 
-Vector*		vector_new(uint element_size);
-void		vector_object_destructor(Vector* v, void (*destructor)(void**));
+typedef void (*destructor_func)(void **);
+
+Vector *vector_new(uint element_size);
+void		vector_object_destructor(Vector* v, destructor_func destructor);
 void		vector_shut(Vector*);
 uint		vector_size(Vector*);
 uint		vector_capacity(Vector*);

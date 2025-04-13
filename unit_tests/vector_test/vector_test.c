@@ -212,7 +212,7 @@ int test_vector_reserve() {
     return 0;
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     int failures = 0;
     failures += test_vector_new();
     failures += test_vector_size();
