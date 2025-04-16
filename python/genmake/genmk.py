@@ -4,7 +4,18 @@ import os
 import re
 
 word_pattern = re.compile(r'\W+')
+global_cflags=[]
 
+
+def load_global_cflags():
+    try:
+        with open('cflags.cfg') as f:
+            for line in f.readlines():
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    global_cflags.append(line)
+    except OSError:
+        pass
 
 def is_executable(directory, c_files):
     for c_file in c_files:
@@ -24,6 +35,7 @@ def generate_rules(directory, c_files):
     o_paths = [f.replace('.c', '.o') for f in c_paths]
     objects = " ".join(o_paths)
     target = ''
+    c_flags = ' '.join(global_cflags)
     if is_executable(directory, c_files):
         deps=[]
         lib_paths=""
@@ -45,7 +57,7 @@ def generate_rules(directory, c_files):
     lines.append('')
     for c_path, o_path in zip(c_paths, o_paths):
         lines.append(f'{o_path}: {c_path}')
-        lines.append(f'\tbin/lacc -c -Iinclude -Iinclude/musl -o {o_path} {c_path}')
+        lines.append(f'\tbin/lacc -c {c_flags} -Iinclude -Iinclude/musl -o {o_path} {c_path}')
         lines.append('')
     return target, lines
 
@@ -76,6 +88,7 @@ class walk:
 
 
 def main():
+    load_global_cflags()
     all_lines = []
     all_targets = []
     for name, files in walk('.'):

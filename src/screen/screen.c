@@ -21,6 +21,10 @@ static const byte font_data[] = {
 #include "font.inl"
 };
 
+#ifdef DEV
+#include <opencv2/highgui/highgui_c.h>
+
+#else
 bool screen_init()
 {
 	screen_fd = open("/dev/fb0", O_RDWR);
@@ -54,6 +58,7 @@ bool screen_init()
 	//printf("Screen buffer mapped successfully\n"); fflush(stdout);
 	return 1;
 }
+#endif
 
 void screen_print_info()
 {
