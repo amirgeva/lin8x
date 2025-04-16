@@ -22,7 +22,43 @@ static const byte font_data[] = {
 };
 
 #ifdef DEV
-#include <opencv2/highgui/highgui_c.h>
+
+#include "virtfb.h"
+
+bool screen_init()
+{
+	if (virtfb_init())
+	{
+		printf("Error initializing virtual framebuffer\n");
+		fflush(stdout);
+		return 0;
+	}
+	screen_buffer = (Color *)get_virtfb_buffer();
+	if (!screen_buffer)
+	{
+		printf("Error getting virtual framebuffer buffer\n");
+		fflush(stdout);
+		return 0;
+	}
+	screen_width = 640;
+	screen_height = 480;
+	screen_rows = screen_height / 16;
+	screen_cols = screen_width / 8;
+	screen_bpp = 16;
+	screen_size = screen_width * screen_height * (screen_bpp / 8);
+	screen_pitch = screen_width * (screen_bpp / 8);
+	//printf("Virtual framebuffer initialized successfully\n"); fflush(stdout);
+	return 1;
+}
+
+void screen_shut()
+{
+	if (screen_buffer)
+	{
+		virtfb_shut();
+		screen_buffer = 0;
+	}
+}
 
 #else
 bool screen_init()
@@ -58,6 +94,21 @@ bool screen_init()
 	//printf("Screen buffer mapped successfully\n"); fflush(stdout);
 	return 1;
 }
+
+void screen_shut()
+{
+	if (screen_buffer)
+	{
+		munmap(screen_buffer, screen_size);
+		screen_buffer = 0;
+	}
+	if (screen_fd >= 0)
+	{
+		close(screen_fd);
+		screen_fd = -1;
+	}
+}
+
 #endif
 
 void screen_print_info()
@@ -74,20 +125,6 @@ void screen_print_info()
 	else
 	{
 		printf("Screen buffer is not initialized.\n");
-	}
-}
-
-void screen_shut()
-{
-	if (screen_buffer)
-	{
-		munmap(screen_buffer, screen_size);
-		screen_buffer = 0;
-	}
-	if (screen_fd >= 0)
-	{
-		close(screen_fd);
-		screen_fd = -1;
 	}
 }
 

@@ -33,3 +33,5 @@
 bin/
 lib/
 include/musl/
+build/
+.vscode/
