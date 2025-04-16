@@ -110,6 +110,25 @@ void screen_draw_pixel(uint x, uint y, Color color)
 	}
 }
 
+void screen_xor_rect(uint x, uint y, uint w, uint h, Color color)
+{
+	uint right = x + w;
+	uint bottom = y + h;
+	if (screen_buffer && x < screen_width && y < screen_height &&
+		right <= screen_width && bottom <= screen_height)
+	{
+		Color *ptr = screen_buffer + (y * screen_width + x);
+		for (uint i = 0; i < h; i++)
+		{
+			for (uint j = 0; j < w; j++)
+			{
+				ptr[j] ^= color;
+			}
+			ptr += screen_width;
+		}
+	}
+}
+
 void screen_fill_rect(uint x, uint y, uint w, uint h, Color color)
 {
 	uint right=x + w;
