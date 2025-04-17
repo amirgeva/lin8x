@@ -34,11 +34,6 @@ int main(int argc, char* argv[])
     }
   }
 
-  if (argc>1)
-  {
-    key_wait=atoi(argv[1]);
-    if (key_wait<1) key_wait=1;
-  }
   key_t key;
   int shmid;
   void *data;
