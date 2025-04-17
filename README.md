@@ -18,3 +18,8 @@ The guiding design rules therefore, are thus:
    6.  A small set of development libraries (Custom)
 
 Further design decisions are pending, but do not expect them to follow Unix traditions just because they are traditions.
+
+***
+
+More details in the [Wiki](https:///github.com/amirgeva/lin8x/wiki)
+
