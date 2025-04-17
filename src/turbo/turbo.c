@@ -131,7 +131,7 @@ short logical_to_visual(Vector *line, uint logical)
 				++x;
 		}
 	}
-	return x - offset.x;
+	return x;
 }
 
 byte cursor_lt(Cursor *a, Cursor *b)
@@ -519,7 +519,7 @@ void calculate_new_offset()
 	Cursor v;
 	visual_cursor(0, &v);
 	if (v.x < (W >> 1))
-		v.x = 0;
+		offset.x = 0;
 	else
 		offset.x = v.x - (W >> 1);
 	if (v.y < (H >> 1))
@@ -617,6 +617,43 @@ void move_x_cursor(short dx)
 	if (cursor.x >= n)
 		cursor.x = n;
 	place_cursor();
+}
+
+bool is_space(byte b)
+{
+	return b==' ' || b==9 || b==10 || b==13;
+}
+
+void move_word_left()
+{
+	Vector *line = get_line(cursor.y);
+	byte *data = vector_access(line, 0);
+	short n = vector_size(line);
+	if (cursor.x > 0)
+	{
+		--cursor.x;
+		if (is_space(data[cursor.x]))
+		{
+			while (cursor.x > 0 && is_space(data[cursor.x]))
+				--cursor.x;
+		}
+		while (cursor.x > 0 && !is_space(data[cursor.x-1]))
+			--cursor.x;
+	}
+}
+
+void move_word_right()
+{
+	Vector *line = get_line(cursor.y);
+	byte *data = vector_access(line, 0);
+	short n = vector_size(line);
+	if (cursor.x < n)
+	{
+		while (cursor.x < n && !is_space(data[cursor.x]))
+			++cursor.x;
+		while (cursor.x < n && is_space(data[cursor.x]))
+			++cursor.x;
+	}
 }
 
 byte is_move_key(uint key)
@@ -908,12 +945,28 @@ void event_loop()
 		switch (key)
 		{
 		case SPECIAL(LEFT):
-			if (cursor.x > 0)
-				move_x_cursor(-1);
+		{
+			if (ctrl) 
+			{
+				move_word_left();
+			}
+			else
+			{
+				if (cursor.x > 0)
+					move_x_cursor(-1);
+			}
 			break;
+		}
 		case SPECIAL(RIGHT):
-			move_x_cursor(1);
+		{
+			if (ctrl)
+			{
+				move_word_right();
+			}
+			else
+				move_x_cursor(1);
 			break;
+		}
 		case SPECIAL(UP):
 		{
 			if (ctrl)

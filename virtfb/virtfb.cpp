@@ -9,9 +9,36 @@
 #include <unistd.h>
 
 #define SHM_SIZE 640*480*2
+int key_wait=100;
+int scale=1;
 
 int main(int argc, char* argv[])
 {
+  for(int i=1;i<argc;++i)
+  {
+    if (strcmp(argv[i], "-s") == 0 && (i + 1) < argc)
+    {
+      scale = atoi(argv[++i]);
+      if (scale < 1) scale = 1;
+      if (scale > 4) scale = 4;
+    }
+    else if (strcmp(argv[i], "-w") == 0 && (i + 1) < argc)
+    {
+      key_wait = atoi(argv[++i]);
+      if (key_wait < 1) key_wait = 1;
+    }
+    else
+    {
+      printf("Usage: %s [-s <scale>] [-w <wait_time>]\n", argv[0]);
+      return 1;
+    }
+  }
+
+  if (argc>1)
+  {
+    key_wait=atoi(argv[1]);
+    if (key_wait<1) key_wait=1;
+  }
   key_t key;
   int shmid;
   void *data;
@@ -54,12 +81,25 @@ int main(int argc, char* argv[])
 
   cv::Mat image(480, 640, CV_8UC2, data);
   cv::Mat color_image(480, 640, CV_8UC3);
+  cv::Mat scaled_image;
+  if (scale > 1)
+  {
+    scaled_image = cv::Mat(480*scale, 640*scale, CV_8UC3);
+  }
 
   cv::namedWindow("virtfb", cv::WINDOW_AUTOSIZE);
-  while (cv::waitKey(1) != 27)
+  int kb=0;
+  while ((kb=cv::waitKey(key_wait)) != 201) // F12
   {
+    //if (kb>0) std::cout << kb << std::endl;
     cv::cvtColor(image, color_image, cv::COLOR_BGR5652BGR);
-    cv::imshow("virtfb", color_image);
+    if (scale>1)
+    {
+      cv::resize(color_image, scaled_image, cv::Size(640*scale, 480*scale), 0, 0, cv::INTER_NEAREST);
+      cv::imshow("virtfb", scaled_image);
+    }
+    else
+      cv::imshow("virtfb", color_image);
   }
 
   /* detach from the segment */

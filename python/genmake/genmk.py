@@ -5,6 +5,11 @@ import re
 
 word_pattern = re.compile(r'\W+')
 global_cflags=[]
+global_lflags=[]
+compiler='bin/lacc'
+linker='bin/mold'
+lflags='-Llib/musl -lc lib/musl/crt1.o'
+post_lib=''
 
 
 def load_global_cflags():
@@ -16,6 +21,16 @@ def load_global_cflags():
                     global_cflags.append(line)
     except OSError:
         pass
+    if '-DDEV' in global_cflags:
+        global_cflags.append('-g')
+        global compiler, linker, lflags, post_lib
+        compiler='gcc'
+        linker='gcc'
+        lflags='-g'
+        post_lib='ranlib'
+    else:
+        global_cflags.append('-Iinclude/musl')
+
 
 def is_executable(directory, c_files):
     for c_file in c_files:
@@ -49,15 +64,17 @@ def generate_rules(directory, c_files):
         target = f'bin/{name}'
         lines.append(f'bin/{name}: {objects} {lib_paths}')
         deps_str=' '.join(deps)
-        lines.append(f'\tbin/mold -o bin/{name} {objects} -Llib -Llib/musl -lc lib/musl/crt1.o {deps_str}')
+        lines.append(f'\t{linker} -o bin/{name} {objects} -Llib {lflags} {deps_str}')
     else:
         target = f'lib/lib{name}.a'
         lines.append(f'lib/lib{name}.a: {objects}')
         lines.append(f'\tbin/lib lib/lib{name}.a {objects}')
+        if post_lib:
+            lines.append(f'\t{post_lib} lib/lib{name}.a')
     lines.append('')
     for c_path, o_path in zip(c_paths, o_paths):
         lines.append(f'{o_path}: {c_path}')
-        lines.append(f'\tbin/lacc -c {c_flags} -Iinclude -Iinclude/musl -o {o_path} {c_path}')
+        lines.append(f'\t{compiler} -c {c_flags} -Iinclude -o {o_path} {c_path}')
         lines.append('')
     return target, lines
 
