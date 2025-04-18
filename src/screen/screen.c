@@ -7,6 +7,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <errno.h>
+#include <termios.h>
 
 static int screen_fd = -1;
 static int screen_width = 0;
@@ -20,6 +21,31 @@ static Color *screen_buffer = 0;
 static const byte font_data[] = {
 #include "font.inl"
 };
+
+void disable_console()
+{
+	// Disable cursor
+	printf("\x1b[?25l");
+	fflush(stdout);
+	// Disable echo
+	struct termios t;
+	tcgetattr(STDIN_FILENO, &t);
+	t.c_lflag &= ~ECHO; // Disable echo
+	tcsetattr(STDIN_FILENO, TCSANOW, &t);
+}
+
+void enable_console()
+{
+	// Enable echo
+	struct termios t;
+	tcgetattr(STDIN_FILENO, &t);
+	t.c_lflag |= ECHO; // Enable echo
+	tcsetattr(STDIN_FILENO, TCSANOW, &t);
+	// Enable cursor
+	printf("\x1b[?25h");
+	fflush(stdout);
+}
+
 
 #ifdef DEV
 
@@ -40,6 +66,7 @@ bool screen_init()
 		fflush(stdout);
 		return 0;
 	}
+	disable_console();
 	screen_width = 640;
 	screen_height = 480;
 	screen_rows = screen_height / 16;
@@ -58,6 +85,7 @@ void screen_shut()
 		virtfb_shut();
 		screen_buffer = 0;
 	}
+	enable_console();
 }
 
 #else
@@ -181,7 +209,7 @@ void screen_fill_rect(uint x, uint y, uint w, uint h, Color color)
 		Color* ptr=screen_buffer + (y * screen_width + x);
 		for (uint i = 0; i < h; i++)
 		{
-			for (uint j = x; j < right; j++)
+			for (uint j = 0; j < w; j++)
 			{
 				ptr[j] = color;
 			}
@@ -402,3 +430,12 @@ uint screen_get_height()
 {
 	return screen_height;
 }
+
+Color RGB(uint r, uint g, uint b)
+{
+	r = ((r&255) >> 3);
+	g = ((g&255) >> 2);
+	b = ((b&255) >> 3);
+	return (r<<11) | (g<<5) | b;
+}
+

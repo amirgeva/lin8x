@@ -25,3 +25,5 @@ bool screen_draw_string(uint x, uint y, const char *str, Color fg, Color bg);
 bool text_draw_char(uint x, uint y, char c, Color fg, Color bg);
 bool text_draw_string(uint x, uint y, const char *str, Color fg, Color bg);
 
+Color RGB(uint r, uint g, uint b);
+
