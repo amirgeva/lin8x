@@ -5,6 +5,7 @@
 //#include <hal.h>
 #include <vector.h>
 #include <types.h>
+#include <utils.h>
 #include <stdlib.h>
 #include <memory.h>
 #include <termios.h>
@@ -16,13 +17,6 @@ FILE *log_file=0;
 #define CONTROL(x) (x - 0x40)
 #define min(x,y)	((x) < (y) ? (x) : (y))
 #define max(x,y)	((x) > (y) ? (x) : (y))
-
-uint millis()
-{
-	struct timespec ts;
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	return (uint)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
-}
 
 Color fg = 0xFFFF;
 Color bg = 0x0000;
@@ -295,14 +289,6 @@ void draw_str(const char *s)
 	{
 		hal_draw_char(*s);
 	}
-}
-
-Color RGB(uint r, uint g, uint b)
-{
-	r = ((r&255) >> 3);
-	g = ((g&255) >> 2);
-	b = ((b&255) >> 3);
-	return (r<<11) | (g<<5) | b;
 }
 
 void draw_menu_item(const char *s)
@@ -1118,36 +1104,11 @@ void event_loop()
 	}
 }
 
-void disable_console()
-{
-	// Disable cursor
-	printf("\x1b[?25l");
-	fflush(stdout);
-	// Disable echo
-	struct termios t;
-	tcgetattr(STDIN_FILENO, &t);
-	t.c_lflag &= ~ECHO; // Disable echo
-	tcsetattr(STDIN_FILENO, TCSANOW, &t);
-}
-
-void enable_console()
-{
-	// Enable echo
-	struct termios t;
-	tcgetattr(STDIN_FILENO, &t);
-	t.c_lflag |= ECHO; // Enable echo
-	tcsetattr(STDIN_FILENO, TCSANOW, &t);
-	// Enable cursor
-	printf("\x1b[?25h");
-	fflush(stdout);
-}
-
 int main(int argc, char *argv[])
 {
 	log_file = fopen("/tmp/log.txt", "w");
 	fprintf(log_file,"Turbo Editor\n");
 	fflush(log_file);
-	disable_console();
 	if (!screen_init())
 	{
 		printf("Failed to open screen\n");
@@ -1181,7 +1142,6 @@ int main(int argc, char *argv[])
 	close_keyboard();
 	screen_clear(0);
 	screen_shut();
-	enable_console();
 	fclose(log_file);
 	return 0;
 }
