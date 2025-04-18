@@ -232,7 +232,7 @@ int main(int argc, char* argv[])
             draw_piece(&current, current.color);
         }
         poll_keyboard_event();
-		uint key = get_key() >> 8;
+		uint key = get_key();
 		if (key==0)
 		{
 			usleep(1000);
@@ -244,6 +244,7 @@ int main(int argc, char* argv[])
             }
 			continue;
 		}
+        if (key>=0x100) key>>=8;
         switch (key)
         {
             case KEY_LEFT:
@@ -257,6 +258,10 @@ int main(int argc, char* argv[])
                 break;
             case KEY_UP:
                 rotate_piece();
+                break;
+            case ' ':
+                while (move_piece(0,1));
+                place_piece();
                 break;
             case KEY_ESC:
                 game_over=1;
