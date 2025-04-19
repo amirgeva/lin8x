@@ -8,6 +8,9 @@
 #include <sys/mman.h>
 #include <errno.h>
 #include <termios.h>
+#include <vector.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
 static int screen_fd = -1;
 static int screen_width = 0;
@@ -21,6 +24,39 @@ static Color *screen_buffer = 0;
 static const byte font_data[] = {
 #include "font.inl"
 };
+
+typedef struct {
+	uint width;
+	uint height;
+	uint transparency;
+	Vector* data;
+} Sprite;
+
+#define SPRITE_LIMIT 256
+Sprite sprites[SPRITE_LIMIT];
+
+void init_sprites()
+{
+	for (int i = 0; i < 256; i++)
+	{
+		sprites[i].width = 0;
+		sprites[i].height = 0;
+		sprites[i].transparency = 0xFFFFFFFF;
+		sprites[i].data = 0;
+	}
+}
+
+void destroy_sprites()
+{
+	for (int i = 0; i < 256; i++)
+	{
+		if (sprites[i].data)
+		{
+			vector_shut(sprites[i].data);
+			sprites[i].data = 0;
+		}
+	}
+}
 
 void disable_console()
 {
@@ -74,12 +110,14 @@ bool screen_init()
 	screen_bpp = 16;
 	screen_size = screen_width * screen_height * (screen_bpp / 8);
 	screen_pitch = screen_width * (screen_bpp / 8);
+	init_sprites();
 	//printf("Virtual framebuffer initialized successfully\n"); fflush(stdout);
 	return 1;
 }
 
 void screen_shut()
 {
+	destroy_sprites();
 	if (screen_buffer)
 	{
 		virtfb_shut();
@@ -120,11 +158,13 @@ bool screen_init()
 	screen_pitch = screen_width * (screen_bpp / 8);
 	screen_buffer = (Color *)mmap(0, screen_size, PROT_READ | PROT_WRITE, MAP_SHARED, screen_fd, 0);
 	//printf("Screen buffer mapped successfully\n"); fflush(stdout);
+	init_sprites();
 	return 1;
 }
 
 void screen_shut()
 {
+	destroy_sprites();
 	if (screen_buffer)
 	{
 		munmap(screen_buffer, screen_size);
@@ -430,6 +470,80 @@ uint screen_get_height()
 {
 	return screen_height;
 }
+
+bool screen_load_sprites(const char *filename, uint size, uint start_index)
+{
+	int w, h, c;
+	byte* data = stbi_load(filename, &w, &h, &c, 0);
+	if (!data) return 0;
+	if (c != 4)
+	{
+		printf("Error: image must be RGBA format\n");
+		stbi_image_free(data);
+		return 0;
+	}
+	uint index=start_index;
+	for(uint y=0;y<=(h-size) && index<SPRITE_LIMIT;y+=size)
+	{
+		for(uint x=0;x<=(w-size) && index<SPRITE_LIMIT;x+=size, ++index)
+		{
+			Sprite* sprite = &sprites[index];
+			sprite->width = size;
+			sprite->height = size;
+			sprite->transparency = 0;
+			if (!sprite->data)
+				sprite->data = vector_new(sizeof(Color));
+			if (!sprite->data) break;
+			vector_resize(sprite->data, size*size);
+			Color* dst = (Color*)vector_access(sprite->data,0);
+			byte* src = data + (y * w + x) * 4;
+			const uint stride = w * 4;
+			for (uint i = 0; i < size; ++i)
+			{
+				for (uint j = 0; j < size; ++j)
+				{
+					Color color = RGB(src[j*4], src[j*4+1], src[j*4+2]);
+					if (src[j*4+3] == 0)
+						color = 0;
+					else if (color==0) color=1;
+					*dst++ = color;
+				}
+				src += stride;
+			}
+		}
+	}
+	return 1;
+}
+
+bool screen_set_sprite(uint index, uint width, uint height, Color* data, Color* transparency)
+{}
+
+bool screen_draw_sprite(uint x, uint y, uint index)
+{
+	if (index >= SPRITE_LIMIT)
+		return 0;
+	Sprite* sprite = &sprites[index];
+	if (!sprite->data)
+		return 0;
+	Color* src = (Color*)vector_access(sprite->data, 0);
+	if (!src)
+		return 0;
+	uint w = sprite->width;
+	uint h = sprite->height;
+	Color* ptr = screen_buffer + (y * screen_width + x);
+	for (uint i = 0; i < h; ++i)
+	{
+		for (uint j = 0; j < w; ++j)
+		{
+			Color color = *src++;
+			if (color != sprite->transparency)
+				ptr[j] = color;
+		}
+		ptr += screen_width;
+	}
+	return 1;
+}
+
 
 Color RGB(uint r, uint g, uint b)
 {

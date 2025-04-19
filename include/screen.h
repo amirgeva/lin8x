@@ -18,6 +18,9 @@ void screen_fill_rect(uint x, uint y, uint w, uint h, Color color);
 void screen_draw_rect(uint x, uint y, uint w, uint h, Color color);
 void screen_draw_line(uint x1, uint y1, uint x2, uint y2, Color color);
 void screen_scroll(uint dy, Color blank_color);
+bool screen_load_sprites(const char *filename, uint size, uint start_index);
+bool screen_set_sprite(uint index, uint width, uint height, Color* data, Color* transparency);
+bool screen_draw_sprite(uint x, uint y, uint index);
 // x,y are coordinates in pixels
 bool screen_draw_char(uint x, uint y, char c, Color fg, Color bg);
 bool screen_draw_string(uint x, uint y, const char *str, Color fg, Color bg);
