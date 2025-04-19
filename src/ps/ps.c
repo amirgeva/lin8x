@@ -25,7 +25,7 @@ int main(int argc, char* argv[]) {
         if (*endptr == '\0')
 		{
             // It's a PID directory
-            char cmdline_path[256];
+            char cmdline_path[4096];
             snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%s/cmdline", entry->d_name);
 
             FILE *cmdline_file = fopen(cmdline_path, "r");

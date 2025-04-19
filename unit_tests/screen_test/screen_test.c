@@ -2,14 +2,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-Color RGB(uint r, uint g, uint b)
-{
-	r = ((r & 255) >> 3);
-	g = ((g & 255) >> 2);
-	b = ((b & 255) >> 3);
-	return (r << 11) | (g << 5) | b;
-}
-
 int main(int argc, char* argv[])
 {
 	Color fill_color = 0;
