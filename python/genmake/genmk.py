@@ -26,7 +26,7 @@ def load_global_cflags():
         global compiler, linker, lflags, post_lib
         compiler='gcc'
         linker='gcc'
-        lflags='-g'
+        lflags='-g -lm'
         post_lib='ranlib'
     else:
         global_cflags.append('-Iinclude/musl')
@@ -41,6 +41,20 @@ def is_executable(directory, c_files):
                 return True
     return False
 
+def recursive_deps(deps):
+    new_count=1
+    while new_count > 0:
+        new_count = 0
+        for dep in deps:
+            try:
+                with open(f'src/{dep}/libs.cfg') as f:
+                    cands = f.readline().split()
+                    for cand in cands:
+                        if cand not in deps:
+                            deps.append(cand)
+                            new_count = 1
+            except OSError:
+                pass
 
 def generate_rules(directory, c_files):
     lines = []
@@ -57,6 +71,7 @@ def generate_rules(directory, c_files):
         try:
             deps=open(f'{directory}/libs.cfg').readline()
             deps=deps.split()
+            recursive_deps(deps)
             lib_paths = " ".join([f'lib/lib{d}.a' for d in deps])
             deps=['-l'+d for d in deps]
         except OSError:
@@ -64,7 +79,7 @@ def generate_rules(directory, c_files):
         target = f'bin/{name}'
         lines.append(f'bin/{name}: {objects} {lib_paths}')
         deps_str=' '.join(deps)
-        lines.append(f'\t{linker} -o bin/{name} {objects} -Llib {lflags} {deps_str}')
+        lines.append(f'\t{linker} -o bin/{name} {objects} -Llib {deps_str} {lflags}')
     else:
         target = f'lib/lib{name}.a'
         lines.append(f'lib/lib{name}.a: {objects}')
@@ -107,13 +122,16 @@ class walk:
 def main():
     load_global_cflags()
     all_lines = []
-    all_targets = []
-    for name, files in walk('.'):
-        c_files = [f for f in files if f.endswith('.c')]
-        if len(c_files) > 0:
-            target, lines = generate_rules(name, c_files)
-            all_lines.extend(lines)
-            all_targets.append(target)
+    all_targets = ['bin/lib']
+    source_directories = ['src', 'unit_tests']
+    for start_dir in source_directories:
+        for name, files in walk(f'./{start_dir}'):
+            c_files = [f for f in files if f.endswith('.c')]
+            if len(c_files) > 0:
+                target, lines = generate_rules(name, c_files)
+                all_lines.extend(lines)
+                if target not in all_targets:
+                    all_targets.append(target)
     with open('Makefile', 'w') as f:
         f.write('all: ')
         f.write(' '.join(all_targets))
@@ -125,6 +143,8 @@ def main():
         f.write('clean:\n')
         for target in all_targets:
             f.write(f'\trm -f {target}\n')
+        for start_dir in source_directories:
+            f.write(f'\tfind {start_dir} -name "*.o" -delete\n')
 
 
 if __name__ == '__main__':
