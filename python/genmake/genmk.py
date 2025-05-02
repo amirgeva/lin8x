@@ -89,7 +89,9 @@ def generate_rules(directory, c_files):
     lines.append('')
     for c_path, o_path in zip(c_paths, o_paths):
         lines.append(f'{o_path}: {c_path}')
-        lines.append(f'\t{compiler} -c {c_flags} -Iinclude -o {o_path} {c_path}')
+        include_dirs=['include','include/Linux']
+        include_str = ' '.join([f'-I{d}' for d in include_dirs])
+        lines.append(f'\t{compiler} -c {c_flags} {include_str} -o {o_path} {c_path}')
         lines.append('')
     return target, lines
 
