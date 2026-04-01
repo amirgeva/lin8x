@@ -4,7 +4,7 @@ import os
 import re
 
 word_pattern = re.compile(r'\W+')
-global_cflags=[]
+global_cflags=['-DSTBI_NO_SIMD']
 global_lflags=[]
 compiler='bin/lacc'
 linker='bin/mold'

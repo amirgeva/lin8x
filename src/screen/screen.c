@@ -63,19 +63,19 @@ void disable_console()
 	// Disable cursor
 	printf("\x1b[?25l");
 	fflush(stdout);
-	// Disable echo
+	// Disable echo and canonical mode
 	struct termios t;
 	tcgetattr(STDIN_FILENO, &t);
-	t.c_lflag &= ~ECHO; // Disable echo
+	t.c_lflag &= ~(ECHO | ICANON | ISIG);
 	tcsetattr(STDIN_FILENO, TCSANOW, &t);
 }
 
 void enable_console()
 {
-	// Enable echo
+	// Enable echo and canonical mode
 	struct termios t;
 	tcgetattr(STDIN_FILENO, &t);
-	t.c_lflag |= ECHO; // Enable echo
+	t.c_lflag |= (ECHO | ICANON | ISIG);
 	tcsetattr(STDIN_FILENO, TCSANOW, &t);
 	// Enable cursor
 	printf("\x1b[?25h");
@@ -158,6 +158,7 @@ bool screen_init()
 	screen_pitch = screen_width * (screen_bpp / 8);
 	screen_buffer = (Color *)mmap(0, screen_size, PROT_READ | PROT_WRITE, MAP_SHARED, screen_fd, 0);
 	//printf("Screen buffer mapped successfully\n"); fflush(stdout);
+	disable_console();
 	init_sprites();
 	return 1;
 }
@@ -175,6 +176,7 @@ void screen_shut()
 		close(screen_fd);
 		screen_fd = -1;
 	}
+	enable_console();
 }
 
 #endif

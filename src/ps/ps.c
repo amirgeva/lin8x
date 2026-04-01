@@ -17,29 +17,36 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    printf("%5s  %s\n", "PID", "COMMAND");
     struct dirent *entry;
     while ((entry = readdir(proc_dir)) != NULL) {
-        // Check if the directory entry is a number (PID)
         char *endptr;
         long pid = strtol(entry->d_name, &endptr, 10);
-        if (*endptr == '\0')
-		{
-            // It's a PID directory
-            char cmdline_path[4096];
-            snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%s/cmdline", entry->d_name);
+        if (*endptr != '\0')
+            continue;
 
-            FILE *cmdline_file = fopen(cmdline_path, "r");
-            if (cmdline_file)
-			{
-                char cmdline[4096];
-                if (fgets(cmdline, sizeof(cmdline), cmdline_file))
-				{
-                    // Print the PID and command line
-                    printf("PID: %ld, Command: %s\n", pid, cmdline);
-                }
-                fclose(cmdline_file);
+        char path[256];
+        char name[256];
+        name[0] = '\0';
+
+        /* try cmdline first */
+        snprintf(path, sizeof(path), "/proc/%s/cmdline", entry->d_name);
+        FILE *f = fopen(path, "r");
+        if (f)
+        {
+            int n = fread(name, 1, sizeof(name) - 1, f);
+            fclose(f);
+            if (n > 0)
+            {
+                /* cmdline uses \0 as separator between args */
+                for (int i = 0; i < n; i++)
+                    if (name[i] == '\0') name[i] = ' ';
+                name[n] = '\0';
             }
         }
+
+        if (name[0] != '\0')
+            printf("%5ld  %s\n", pid, name);
     }
 
     closedir(proc_dir);

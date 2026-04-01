@@ -8,6 +8,9 @@
 #include <utils.h>
 #include <stdlib.h>
 #include <memory.h>
+#include <string.h>
+#include <dirent.h>
+#include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
 #include <time.h>
@@ -30,6 +33,7 @@ uint W, H;
 byte insert = 1;
 Vector *document;
 Vector *clipboard;
+char current_filename[256];
 
 typedef struct _cursor
 {
@@ -67,6 +71,7 @@ void init_state()
 	select_start.y = 0;
 	select_stop.x = 0;
 	select_stop.y = 0;
+	current_filename[0] = 0;
 }
 
 byte in_selection(short x, short y)
@@ -252,6 +257,624 @@ void load_file(const char *filename)
 		}
 	}
 	fclose(file);
+}
+
+/* forward declarations */
+void hal_color(Color fg, Color bg);
+void hal_move(uint x, uint y);
+void hal_draw_char(char c);
+void hal_rept_char(char c, uint n);
+void draw_str(const char *s);
+void draw_frame();
+void redraw_all();
+uint getkey();
+void clipboard_copy();
+void clipboard_cut();
+void clipboard_paste();
+#define SPECIAL(x) (KEY_##x << 8)
+
+void save_file(const char *filename)
+{
+	FILE *file = fopen(filename, "w");
+	if (!file) return;
+	uint n = vector_size(document);
+	for (uint i = 0; i < n; ++i)
+	{
+		Vector *line;
+		vector_get(document, i, &line);
+		uint len = vector_size(line);
+		if (len > 0)
+		{
+			byte *data = vector_access(line, 0);
+			fwrite(data, 1, len, file);
+		}
+		fputc('\n', file);
+	}
+	fclose(file);
+}
+
+/* ---- Dropdown menu system ---- */
+
+#define MENU_BOX_W 20
+#define MENU_FG RGB(0, 0, 0)
+#define MENU_BG RGB(168, 168, 168)
+#define MENU_SEL_FG RGB(255, 255, 255)
+#define MENU_SEL_BG RGB(0, 0, 0)
+#define MENU_HOT RGB(168, 0, 0)
+
+static void draw_menu_box(uint x, uint y, uint w, uint h)
+{
+	hal_color(MENU_FG, MENU_BG);
+	for (uint row = 0; row < h; row++)
+	{
+		hal_move(x, y + row);
+		hal_rept_char(' ', w);
+	}
+}
+
+static void draw_menu_entry(uint x, uint y, const char *text, const char *shortcut, byte selected)
+{
+	if (text == NULL)
+	{
+		/* separator */
+		hal_color(MENU_FG, MENU_BG);
+		hal_move(x, y);
+		hal_draw_char(0xCC);
+		hal_rept_char(0xCD, MENU_BOX_W - 2);
+		hal_draw_char(0xB9);
+		return;
+	}
+	hal_color(MENU_FG, MENU_BG);
+	hal_move(x, y);
+	hal_draw_char(0xBA);
+	if (selected)
+		hal_color(MENU_SEL_FG, MENU_SEL_BG);
+	hal_draw_char(' ');
+	/* draw text with first char highlighted */
+	if (!selected)
+		hal_color(MENU_HOT, MENU_BG);
+	hal_draw_char(text[0]);
+	if (selected)
+		hal_color(MENU_SEL_FG, MENU_SEL_BG);
+	else
+		hal_color(MENU_FG, MENU_BG);
+	for (const char *p = text + 1; *p; p++)
+		hal_draw_char(*p);
+	/* pad and draw shortcut */
+	uint text_len = strlen(text);
+	uint sc_len = shortcut ? strlen(shortcut) : 0;
+	uint pad = MENU_BOX_W - 4 - text_len - sc_len;
+	hal_rept_char(' ', pad);
+	if (shortcut)
+	{
+		for (const char *p = shortcut; *p; p++)
+			hal_draw_char(*p);
+	}
+	hal_draw_char(' ');
+	hal_color(MENU_FG, MENU_BG);
+	hal_draw_char(0xBA);
+}
+
+static void draw_menu_border_top(uint x, uint y)
+{
+	hal_color(MENU_FG, MENU_BG);
+	hal_move(x, y);
+	hal_draw_char(0xC9);
+	hal_rept_char(0xCD, MENU_BOX_W - 2);
+	hal_draw_char(0xBB);
+}
+
+static void draw_menu_border_bottom(uint x, uint y)
+{
+	hal_color(MENU_FG, MENU_BG);
+	hal_move(x, y);
+	hal_draw_char(0xC8);
+	hal_rept_char(0xCD, MENU_BOX_W - 2);
+	hal_draw_char(0xBC);
+}
+
+typedef struct {
+	const char *text;
+	const char *shortcut;
+} MenuItem;
+
+static int run_dropdown(uint menu_x, uint menu_y, MenuItem *items, int count)
+{
+	int sel = 0;
+	/* count non-separator items to skip separators */
+	uint box_h = count + 2;
+	draw_menu_border_top(menu_x, menu_y);
+	for (int i = 0; i < count; i++)
+		draw_menu_entry(menu_x, menu_y + 1 + i, items[i].text, items[i].shortcut, i == sel);
+	draw_menu_border_bottom(menu_x, menu_y + count + 1);
+
+	while (1)
+	{
+		poll_keyboard_event();
+		uint key = getkey();
+		if (key == 0)
+		{
+			usleep(1000);
+			continue;
+		}
+		key &= ~(MODIFIER_CTRL | MODIFIER_ALT | MODIFIER_SHIFT);
+		if (key == SPECIAL(ESC))
+			return -1;
+		if (key == SPECIAL(ENTER))
+			return sel;
+		if (key == SPECIAL(UP))
+		{
+			do {
+				sel = (sel + count - 1) % count;
+			} while (items[sel].text == NULL);
+		}
+		else if (key == SPECIAL(DOWN))
+		{
+			do {
+				sel = (sel + 1) % count;
+			} while (items[sel].text == NULL);
+		}
+		/* redraw entries */
+		for (int i = 0; i < count; i++)
+			draw_menu_entry(menu_x, menu_y + 1 + i, items[i].text, items[i].shortcut, i == sel);
+	}
+}
+
+/* ---- File dialog (Turbo C style) ---- */
+
+#define DLG_W 50
+#define DLG_H 20
+#define DLG_LIST_H 12
+#define DLG_MAX_FILES 256
+#define DLG_NAME_MAX 64
+
+#define DLG_CYAN   RGB(0, 168, 168)
+#define DLG_DCYAN  RGB(0, 84, 84)
+#define DLG_WHITE  RGB(255, 255, 255)
+#define DLG_BLACK  RGB(0, 0, 0)
+#define DLG_YELLOW RGB(255, 255, 84)
+#define DLG_GREEN  RGB(84, 255, 84)
+
+static void dlg_box(uint x, uint y, uint w, uint h, Color fg, Color bg)
+{
+	hal_color(fg, bg);
+	hal_move(x, y);
+	hal_draw_char(0xC9);
+	hal_rept_char(0xCD, w - 2);
+	hal_draw_char(0xBB);
+	for (uint i = 1; i < h - 1; i++)
+	{
+		hal_move(x, y + i);
+		hal_draw_char(0xBA);
+		hal_rept_char(' ', w - 2);
+		hal_draw_char(0xBA);
+	}
+	hal_move(x, y + h - 1);
+	hal_draw_char(0xC8);
+	hal_rept_char(0xCD, w - 2);
+	hal_draw_char(0xBC);
+}
+
+static void dlg_inner_box(uint x, uint y, uint w, uint h, Color fg, Color bg)
+{
+	hal_color(fg, bg);
+	hal_move(x, y);
+	hal_draw_char(0xDA);
+	hal_rept_char(0xC4, w - 2);
+	hal_draw_char(0xBF);
+	for (uint i = 1; i < h - 1; i++)
+	{
+		hal_move(x, y + i);
+		hal_draw_char(0xB3);
+		hal_rept_char(' ', w - 2);
+		hal_draw_char(0xB3);
+	}
+	hal_move(x, y + h - 1);
+	hal_draw_char(0xC0);
+	hal_rept_char(0xC4, w - 2);
+	hal_draw_char(0xD9);
+}
+
+static void dlg_label(uint x, uint y, const char *text, Color fg, Color bg)
+{
+	hal_color(fg, bg);
+	hal_move(x, y);
+	for (const char *p = text; *p; p++)
+		hal_draw_char(*p);
+}
+
+static void dlg_button(uint x, uint y, const char *text, byte selected)
+{
+	if (selected)
+		hal_color(DLG_BLACK, DLG_GREEN);
+	else
+		hal_color(DLG_BLACK, DLG_CYAN);
+	hal_move(x, y);
+	hal_draw_char(' ');
+	for (const char *p = text; *p; p++)
+		hal_draw_char(*p);
+	hal_draw_char(' ');
+}
+
+typedef struct {
+	char name[DLG_NAME_MAX];
+	byte is_dir;
+} FileEntry;
+
+static int file_entry_cmp(const void *a, const void *b)
+{
+	const FileEntry *fa = (const FileEntry *)a;
+	const FileEntry *fb = (const FileEntry *)b;
+	/* directories first */
+	if (fa->is_dir != fb->is_dir)
+		return fb->is_dir - fa->is_dir;
+	return strcmp(fa->name, fb->name);
+}
+
+static int scan_directory(const char *path, FileEntry *entries, int max)
+{
+	DIR *dir = opendir(path);
+	if (!dir) return 0;
+	int count = 0;
+	/* add parent directory entry */
+	strcpy(entries[count].name, "..");
+	entries[count].is_dir = 1;
+	count++;
+	struct dirent *ent;
+	while ((ent = readdir(dir)) != NULL && count < max)
+	{
+		if (ent->d_name[0] == '.')
+			continue;
+		strncpy(entries[count].name, ent->d_name, DLG_NAME_MAX - 1);
+		entries[count].name[DLG_NAME_MAX - 1] = 0;
+		char full[512];
+		snprintf(full, sizeof(full), "%s/%s", path, ent->d_name);
+		struct stat st;
+		entries[count].is_dir = 0;
+		if (stat(full, &st) == 0 && S_ISDIR(st.st_mode))
+			entries[count].is_dir = 1;
+		count++;
+	}
+	closedir(dir);
+	qsort(entries, count, sizeof(FileEntry), file_entry_cmp);
+	return count;
+}
+
+/* focus: 0=name field, 1=file list, 2=Open button, 3=Cancel button */
+#define FOCUS_NAME 0
+#define FOCUS_LIST 1
+#define FOCUS_OK   2
+#define FOCUS_CANCEL 3
+
+static int input_dialog(const char *title, char *buf, int bufsize)
+{
+	uint dx = (W - DLG_W) / 2;
+	uint dy = (H - DLG_H) / 2;
+	uint name_x = dx + 2;
+	uint name_y = dy + 2;
+	uint name_w = DLG_W - 4;
+	uint list_x = dx + 2;
+	uint list_y = dy + 5;
+	uint list_w = DLG_W - 4;
+	uint btn_y = dy + DLG_H - 2;
+
+	FileEntry files[DLG_MAX_FILES];
+	char cwd[256];
+	getcwd(cwd, sizeof(cwd));
+	int file_count = scan_directory(cwd, files, DLG_MAX_FILES);
+	int list_sel = 0;
+	int list_scroll = 0;
+	int focus = FOCUS_NAME;
+	int name_len = strlen(buf);
+
+	while (1)
+	{
+		/* draw dialog */
+		dlg_box(dx, dy, DLG_W, DLG_H, DLG_YELLOW, DLG_DCYAN);
+		/* title */
+		uint title_x = dx + (DLG_W - strlen(title) - 2) / 2;
+		hal_color(DLG_YELLOW, DLG_DCYAN);
+		hal_move(title_x, dy);
+		hal_draw_char(' ');
+		draw_str(title);
+		hal_draw_char(' ');
+
+		/* Name label and field */
+		dlg_label(name_x, dy + 1, "Name", DLG_YELLOW, DLG_DCYAN);
+		if (focus == FOCUS_NAME)
+			hal_color(DLG_BLACK, DLG_WHITE);
+		else
+			hal_color(DLG_WHITE, DLG_BLACK);
+		hal_move(name_x, name_y);
+		hal_rept_char(' ', name_w);
+		hal_move(name_x, name_y);
+		for (int i = 0; i < name_len && i < name_w; i++)
+			hal_draw_char(buf[i]);
+
+		/* File list label */
+		dlg_label(list_x, dy + 3, "Files", DLG_YELLOW, DLG_DCYAN);
+		/* cwd display */
+		hal_color(DLG_WHITE, DLG_DCYAN);
+		hal_move(list_x + 7, dy + 3);
+		{
+			int cw = DLG_W - 12;
+			int cl = strlen(cwd);
+			const char *show = cwd;
+			if (cl > cw) show = cwd + cl - cw;
+			for (const char *p = show; *p; p++)
+				hal_draw_char(*p);
+		}
+
+		/* File list box */
+		dlg_inner_box(list_x, list_y - 1, list_w, DLG_LIST_H + 2, DLG_WHITE, DLG_DCYAN);
+		for (int i = 0; i < DLG_LIST_H; i++)
+		{
+			int fi = list_scroll + i;
+			hal_move(list_x + 1, list_y + i);
+			if (fi < file_count)
+			{
+				byte sel = (focus == FOCUS_LIST && fi == list_sel);
+				if (sel)
+					hal_color(DLG_BLACK, DLG_CYAN);
+				else
+					hal_color(DLG_WHITE, DLG_DCYAN);
+				int nlen = strlen(files[fi].name);
+				int avail = list_w - 2;
+				for (int j = 0; j < avail; j++)
+				{
+					if (j < nlen)
+						hal_draw_char(files[fi].name[j]);
+					else if (j == nlen && files[fi].is_dir)
+						hal_draw_char('/');
+					else
+						hal_draw_char(' ');
+				}
+			}
+			else
+			{
+				hal_color(DLG_WHITE, DLG_DCYAN);
+				hal_rept_char(' ', list_w - 2);
+			}
+		}
+
+		/* Buttons */
+		dlg_button(dx + DLG_W / 2 - 12, btn_y, "Open", focus == FOCUS_OK);
+		dlg_button(dx + DLG_W / 2 + 4, btn_y, "Cancel", focus == FOCUS_CANCEL);
+
+		/* scrollbar indicator */
+		if (file_count > DLG_LIST_H)
+		{
+			hal_color(DLG_WHITE, DLG_DCYAN);
+			uint sb_pos = list_sel * (DLG_LIST_H - 1) / (file_count - 1);
+			for (int i = 0; i < DLG_LIST_H; i++)
+			{
+				hal_move(list_x + list_w - 1, list_y + i);
+				hal_draw_char(i == sb_pos ? 0xDB : 0xB1);
+			}
+		}
+
+		/* wait for key */
+		uint key = 0;
+		while (key == 0)
+		{
+			poll_keyboard_event();
+			key = getkey();
+			if (key == 0) usleep(1000);
+		}
+		uint raw = key & ~(MODIFIER_CTRL | MODIFIER_ALT | MODIFIER_SHIFT);
+
+		if (raw == SPECIAL(ESC))
+			return -1;
+
+		if (raw == SPECIAL(TAB))
+		{
+			focus = (focus + 1) % 4;
+			continue;
+		}
+
+		if (focus == FOCUS_NAME)
+		{
+			if (raw == SPECIAL(ENTER))
+			{
+				buf[name_len] = '\0';
+				return 0;
+			}
+			else if (raw == SPECIAL(BACKSPACE))
+			{
+				if (name_len > 0) buf[--name_len] = '\0';
+			}
+			else if (key >= 32 && key < 127 && name_len < bufsize - 1)
+			{
+				buf[name_len++] = (char)key;
+				buf[name_len] = '\0';
+			}
+		}
+		else if (focus == FOCUS_LIST)
+		{
+			if (raw == SPECIAL(UP) && list_sel > 0)
+			{
+				list_sel--;
+				if (list_sel < list_scroll)
+					list_scroll = list_sel;
+			}
+			else if (raw == SPECIAL(DOWN) && list_sel < file_count - 1)
+			{
+				list_sel++;
+				if (list_sel >= list_scroll + DLG_LIST_H)
+					list_scroll = list_sel - DLG_LIST_H + 1;
+			}
+			else if (raw == SPECIAL(PAGEUP))
+			{
+				list_sel -= DLG_LIST_H;
+				if (list_sel < 0) list_sel = 0;
+				list_scroll = list_sel;
+			}
+			else if (raw == SPECIAL(PAGEDOWN))
+			{
+				list_sel += DLG_LIST_H;
+				if (list_sel >= file_count) list_sel = file_count - 1;
+				if (list_sel >= list_scroll + DLG_LIST_H)
+					list_scroll = list_sel - DLG_LIST_H + 1;
+			}
+			else if (raw == SPECIAL(ENTER))
+			{
+				if (list_sel < file_count && files[list_sel].is_dir)
+				{
+					/* navigate into directory */
+					chdir(files[list_sel].name);
+					getcwd(cwd, sizeof(cwd));
+					file_count = scan_directory(cwd, files, DLG_MAX_FILES);
+					list_sel = 0;
+					list_scroll = 0;
+				}
+				else if (list_sel < file_count)
+				{
+					/* select file */
+					strncpy(buf, files[list_sel].name, bufsize - 1);
+					buf[bufsize - 1] = 0;
+					name_len = strlen(buf);
+					return 0;
+				}
+			}
+		}
+		else if (focus == FOCUS_OK)
+		{
+			if (raw == SPECIAL(ENTER))
+			{
+				buf[name_len] = '\0';
+				return 0;
+			}
+		}
+		else if (focus == FOCUS_CANCEL)
+		{
+			if (raw == SPECIAL(ENTER))
+				return -1;
+		}
+	}
+}
+
+/* ---- File menu actions ---- */
+
+static byte do_file_new()
+{
+	clear();
+	current_filename[0] = 0;
+	cursor.x = 0;
+	cursor.y = 0;
+	offset.x = 0;
+	offset.y = 0;
+	draw_frame();
+	redraw_all();
+	return 0;
+}
+
+static byte do_file_open()
+{
+	char buf[256];
+	buf[0] = 0;
+	if (input_dialog("Open file:", buf, sizeof(buf)) == 0 && buf[0] != 0)
+	{
+		load_file(buf);
+		strncpy(current_filename, buf, sizeof(current_filename) - 1);
+		cursor.x = 0;
+		cursor.y = 0;
+		offset.x = 0;
+		offset.y = 0;
+		draw_frame();
+		redraw_all();
+	}
+	else
+	{
+		draw_frame();
+		redraw_all();
+	}
+	return 0;
+}
+
+static byte do_file_save()
+{
+	if (current_filename[0] == 0)
+	{
+		char buf[256];
+		buf[0] = 0;
+		if (input_dialog("Save as:", buf, sizeof(buf)) == 0 && buf[0] != 0)
+		{
+			strncpy(current_filename, buf, sizeof(current_filename) - 1);
+		}
+		else
+		{
+			draw_frame();
+			redraw_all();
+			return 0;
+		}
+	}
+	save_file(current_filename);
+	draw_frame();
+	redraw_all();
+	return 0;
+}
+
+static byte do_file_save_as()
+{
+	char buf[256];
+	strncpy(buf, current_filename, sizeof(buf) - 1);
+	buf[sizeof(buf) - 1] = 0;
+	if (input_dialog("Save as:", buf, sizeof(buf)) == 0 && buf[0] != 0)
+	{
+		strncpy(current_filename, buf, sizeof(current_filename) - 1);
+		save_file(current_filename);
+	}
+	draw_frame();
+	redraw_all();
+	return 0;
+}
+
+byte show_file_menu()
+{
+	MenuItem items[] = {
+		{ "New",     ""    },
+		{ "Open",    "F3"  },
+		{ "Save",    "F2"  },
+		{ "Save as", ""    },
+		{ NULL,      NULL  },
+		{ "Quit",    "Alt-Q" },
+	};
+	int count = sizeof(items) / sizeof(items[0]);
+	/* File menu starts at column 4 (after the system icon item) */
+	int choice = run_dropdown(4, 1, items, count);
+	switch (choice)
+	{
+	case 0: return do_file_new();
+	case 1: return do_file_open();
+	case 2: return do_file_save();
+	case 3: return do_file_save_as();
+	case 5: return 1; /* quit */
+	default:
+		draw_frame();
+		redraw_all();
+		return 0;
+	}
+}
+
+byte show_edit_menu()
+{
+	MenuItem items[] = {
+		{ "Cut",     "Ctrl-X" },
+		{ "Copy",    "Ctrl-C" },
+		{ "Paste",   "Ctrl-V" },
+	};
+	int count = sizeof(items) / sizeof(items[0]);
+	int choice = run_dropdown(9, 1, items, count);
+	switch (choice)
+	{
+	case 0: clipboard_cut(); redraw_all(); break;
+	case 1: clipboard_copy(); break;
+	case 2: clipboard_paste(); redraw_all(); break;
+	default: break;
+	}
+	draw_frame();
+	redraw_all();
+	return 0;
 }
 
 Color hal_fg = 0, hal_bg = 0;
@@ -891,12 +1514,9 @@ void clipboard_paste()
 	redraw_stop = 0x7000;
 }
 
-#define SPECIAL(x) (KEY_##x << 8)
-
 void event_loop()
 {
 	byte done = 0;
-	const uint total_lines = vector_size(document);
 	while (!done)
 	{
 		Cursor prev_cursor;
@@ -984,7 +1604,7 @@ void event_loop()
 			}
 			else
 			{
-				if (cursor.y < total_lines)
+				if (cursor.y < vector_size(document))
 					move_y(1);
 			}
 			break;
@@ -1019,10 +1639,64 @@ void event_loop()
 				cursor.y -= 25;
 			break;
 		case SPECIAL(PAGEDOWN):
-			cursor.y = min(cursor.y + 25, total_lines);
+			cursor.y = min(cursor.y + 25, vector_size(document));
 			break;
+		case SPECIAL(F):
+		{
+			if (alt)
+			{
+				if (show_file_menu())
+					done = 1;
+			}
+			break;
+		}
+		case SPECIAL(Q):
+		{
+			if (alt)
+				done = 1;
+			break;
+		}
+		case SPECIAL(E):
+		{
+			if (alt)
+				show_edit_menu();
+			break;
+		}
+		case SPECIAL(C):
+		{
+			if (ctrl)
+				clipboard_copy();
+			break;
+		}
+		case SPECIAL(X):
+		{
+			if (ctrl)
+			{
+				clipboard_cut();
+				redraw_all();
+			}
+			break;
+		}
+		case SPECIAL(V):
+		{
+			if (ctrl)
+			{
+				clipboard_paste();
+				redraw_all();
+			}
+			break;
+		}
+		case SPECIAL(F2):
+		{
+			do_file_save();
+			break;
+		}
+		case SPECIAL(F3):
+		{
+			do_file_open();
+			break;
+		}
 		case SPECIAL(ESC):
-			done = 1;
 			break;
 		case SPECIAL(INSERT):
 		{
@@ -1130,6 +1804,7 @@ int main(int argc, char *argv[])
 	if (argc>1)
 	{
 		load_file(argv[1]);
+		strncpy(current_filename, argv[1], sizeof(current_filename) - 1);
 	}
 	fg = 0xFFFF;
 	bg = 0x0;
@@ -1142,6 +1817,7 @@ int main(int argc, char *argv[])
 	close_keyboard();
 	screen_clear(0);
 	screen_shut();
+	tcflush(STDIN_FILENO, TCIFLUSH);
 	fclose(log_file);
 	return 0;
 }
